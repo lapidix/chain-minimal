@@ -78,6 +78,8 @@ func NewRootCmd() *cobra.Command {
 			srvCfg.MinGasPrices = "0mini"
 
 			// overwrite the block timeout
+			// FIXME: timeout_commit 설정을 위해서는 여기 수정 필요 
+			// NOTE: 아래 코드를 수정하면 init설정시 기본 값을 수정 가능
 			cmtCfg := cmtcfg.DefaultConfig()
 			cmtCfg.Consensus.TimeoutCommit = 3 * time.Second
 			cmtCfg.LogLevel = "*:error,p2p:info,state:info" // better default logging
