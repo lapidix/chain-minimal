@@ -32,3 +32,6 @@ install:
 
 init:
 	./scripts/init.sh
+
+blocktime:
+	@go run ./scripts/blocktime

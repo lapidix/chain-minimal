@@ -82,7 +82,8 @@ func NewRootCmd() *cobra.Command {
 			// NOTE: 아래 코드를 수정하면 init설정시 기본 값을 수정 가능
 			cmtCfg := cmtcfg.DefaultConfig()
 			cmtCfg.Consensus.TimeoutCommit = 3 * time.Second
-			cmtCfg.LogLevel = "*:error,p2p:info,state:info" // better default logging
+			cmtCfg.LogLevel = "*:error,p2p:info,state:info"
+			cmtCfg.Instrumentation.Prometheus = true
 
 			return server.InterceptConfigsPreRunHandler(cmd, serverconfig.DefaultConfigTemplate, srvCfg, cmtCfg)
 		},
