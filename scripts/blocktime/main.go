@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -30,32 +33,37 @@ type blockResponse struct {
 }
 
 type stats struct {
-	count     int
-	totalMs   float64
-	minMs     float64
-	maxMs     float64
-	intervals []float64
+	count          int
+	totalMs        float64
+	minMs          float64
+	maxMs          float64
+	intervals      []float64
+	timeoutCommit  string
 }
 
 func main() {
-	rpcAddr := "http://localhost:26657"
-	if len(os.Args) > 1 {
-		rpcAddr = os.Args[1]
-	}
+	homeDir, _ := os.UserHomeDir()
+	defaultHome := filepath.Join(homeDir, ".minid")
 
-	st := &stats{minMs: math.MaxFloat64}
+	home := flag.String("home", defaultHome, "node home directory")
+	rpc := flag.String("rpc", "http://localhost:26657", "CometBFT RPC address")
+	flag.Parse()
+
+	timeoutCommit := readTimeoutCommit(*home)
+
+	st := &stats{minMs: math.MaxFloat64, timeoutCommit: timeoutCommit}
 	var prevHeight int64
 	var prevBlockTime time.Time
 	var prevObserved time.Time
 
-	first, err := fetchLatestBlock(rpcAddr)
+	first, err := fetchLatestBlock(*rpc)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  [error] RPC 연결 실패 (%s): %v\n", rpcAddr, err)
+		fmt.Fprintf(os.Stderr, "  [error] RPC 연결 실패 (%s): %v\n", *rpc, err)
 		os.Exit(1)
 	}
 
 	chainID := first.Result.Block.Header.ChainID
-	printHeader(chainID, rpcAddr)
+	printHeader(chainID, *rpc, timeoutCommit)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -69,7 +77,7 @@ func main() {
 			printSummary(st)
 			return
 		case <-ticker.C:
-			block, err := fetchLatestBlock(rpcAddr)
+			block, err := fetchLatestBlock(*rpc)
 			if err != nil {
 				continue
 			}
@@ -122,10 +130,34 @@ func main() {
 	}
 }
 
-func printHeader(chainID, rpcAddr string) {
+func readTimeoutCommit(home string) string {
+	configPath := filepath.Join(home, "config", "config.toml")
+	f, err := os.Open(configPath)
+	if err != nil {
+		return "(config.toml not found)"
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "timeout_commit") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				val := strings.TrimSpace(parts[1])
+				val = strings.Trim(val, "\"")
+				return val
+			}
+		}
+	}
+	return "(not set)"
+}
+
+func printHeader(chainID, rpcAddr, timeoutCommit string) {
 	fmt.Println()
 	fmt.Printf("  Block Time Monitor\n")
 	fmt.Printf("  Chain: %s  |  RPC: %s\n", chainID, rpcAddr)
+	fmt.Printf("  Config: timeout_commit = %s\n", timeoutCommit)
 	fmt.Printf("  Ctrl+C to stop and see summary\n\n")
 	fmt.Printf("  %7s │ %9s │ %9s │ %8s │ %4s │ %9s │ %9s │ %9s\n",
 		"Height", "Interval", "Observed", "Latency", "TXs", "Avg", "Min", "Max")
@@ -196,10 +228,23 @@ func printSummary(st *stats) {
 	fmt.Printf("\n  ══════════════════════════════════════════\n")
 	fmt.Printf("  Summary (%d blocks measured)\n", st.count)
 	fmt.Printf("  ──────────────────────────────────────────\n")
+	fmt.Printf("  Configured: timeout_commit = %s\n", st.timeoutCommit)
 	fmt.Printf("  Average:    %s\n", fmtMs(avgMs))
 	fmt.Printf("  Min:        %s\n", fmtMs(st.minMs))
 	fmt.Printf("  Max:        %s\n", fmtMs(st.maxMs))
 	fmt.Printf("  Stddev:     %s\n", fmtMs(stddev))
 	fmt.Printf("  Total time: %s\n", fmtMs(st.totalMs))
+
+	configured, err := time.ParseDuration(st.timeoutCommit)
+	if err == nil {
+		cfgMs := float64(configured.Milliseconds())
+		diffMs := avgMs - cfgMs
+		diffPct := (diffMs / cfgMs) * 100
+		sign := "+"
+		if diffMs < 0 {
+			sign = ""
+		}
+		fmt.Printf("  Drift:      %s%.0fms (%s%.1f%% vs config)\n", sign, diffMs, sign, diffPct)
+	}
 	fmt.Printf("  ══════════════════════════════════════════\n\n")
 }
