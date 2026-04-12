@@ -6,11 +6,11 @@ modules:
       # During begin block slashing happens after distr.BeginBlocker so that
       # there is nothing left over in the validator fee pool, so as to keep the CanWithdrawInvariant invariant.
       # NOTE: staking module is required if HistoricalEntries param > 0
-      begin_blockers: [distribution, staking]
+      begin_blockers: [distribution, slashing, staking]
       end_blockers: [staking]
       # NOTE: The genutils module must occur after staking so that pools are properly initialized with tokens from genesis accounts.
       # NOTE: The genutils module must also occur after auth so that it can access the params from auth.
-      init_genesis: [auth, bank, distribution, staking, genutil]
+      init_genesis: [auth, bank, distribution, staking, slashing, genutil]
       override_store_keys:
         - module_name: auth
           kv_store_key: acc
@@ -36,6 +36,9 @@ modules:
   - name: distribution
     config:
       "@type": cosmos.distribution.module.v1.Module
+  - name: slashing
+    config:
+      "@type": cosmos.slashing.module.v1.Module
   - name: consensus
     config:
       "@type": cosmos.consensus.module.v1.Module
